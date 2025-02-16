@@ -925,3 +925,111 @@
   }
   return(output)
 }
+
+
+# Function to read FIRE2 datasets
+.fire2_read_hdf5 = function(data, head, cores){
+  
+  groups = hdf5r::list.groups(data) # What particle data is present?
+  groups = groups[stringr::str_detect(groups, "PartType")] # Pick out PartTypeX groups
+  
+  if ("PartType0" %in% groups){ # If gas particles are present in the file
+    
+    PT0_attr = hdf5r::list.datasets(data[["PartType0"]])
+    
+    expected_names_gas = c("Coordinates", "Density", "Masses", "ParticleIDs",
+                           "Metallicity", "StarFormationRate", "SmoothingLength",
+                           "Temperature", "ElectronAbundance", "NeutralHydrogenAbundance", "Velocities")
+    PT0_attr = PT0_attr[which(PT0_attr %in% expected_names_gas)] # trim list to only read in necessary data sets
+    
+    n_gas_prop = length(PT0_attr)
+    gas = vector("list", n_gas_prop)
+    names(gas) = PT0_attr
+    
+    for (i in 1:n_gas_prop){
+      aexp = hdf5r::h5attr(data[[paste0("PartType0/",PT0_attr[i])]], "aexp-scale-exponent")
+      hexp = hdf5r::h5attr(data[[paste0("PartType0/",PT0_attr[i])]], "h-scale-exponent")
+      cgs  = hdf5r::h5attr(data[[paste0("PartType0/",PT0_attr[i])]], "CGSConversionFactor")
+      gas[[i]] =
+        hdf5r::readDataSet(data[[paste0("PartType0/",PT0_attr[i])]]) * head$Time^(aexp) * head$HubbleParam^(hexp) * cgs
+    }
+    
+    gas = .check_names(gas)
+    eagle_gas_names = c("SmoothingLength", "Temperature", "InternalEnergy")
+    if (!all(eagle_gas_names %in% names(gas))){
+      stop("Error. Missing a necessary dataset for EAGLE PartType0. \n
+           Either `SmoothingLength`, `Temperature`, or `InternalEnergy`. \n
+           See https://kateharborne.github.io/SimSpin/examples/generating_hdf5.html#parttype0 for more info.")
+    }
+    
+    one_p_flag = FALSE
+    if (is.null(dim(gas$Coordinates))){one_p_flag = TRUE}
+    
+    gas_part = data.table::data.table("ID" = gas$ParticleIDs,
+                                      "x"  = if(one_p_flag){gas$Coordinates[1]*.cm_to_kpc}else{gas$Coordinates[1,]*.cm_to_kpc}, # Coordinates in kpc
+                                      "y"  = if(one_p_flag){gas$Coordinates[2]*.cm_to_kpc}else{gas$Coordinates[2,]*.cm_to_kpc},
+                                      "z"  = if(one_p_flag){gas$Coordinates[3]*.cm_to_kpc}else{gas$Coordinates[3,]*.cm_to_kpc},
+                                      "vx"  = if(one_p_flag){gas$Velocity[1]*.cms_to_kms}else{gas$Velocity[1,]*.cms_to_kms}, # Velocities in km/s
+                                      "vy"  = if(one_p_flag){gas$Velocity[2]*.cms_to_kms}else{gas$Velocity[2,]*.cms_to_kms},
+                                      "vz"  = if(one_p_flag){gas$Velocity[3]*.cms_to_kms}else{gas$Velocity[3,]*.cms_to_kms},
+                                      "Mass" = gas$Mass*.g_to_msol, # Mass in solar masses
+                                      "SFR" = gas$StarFormationRate*(.g_to_msol/.s_to_yr), #SFR in Msol/yr
+                                      "Density" = gas$Density*.gcm3_to_msolkpc3, # Density in Msol/kpc^3
+                                      "Temperature" = gas$Temperature,
+                                      "SmoothingLength" = gas$SmoothingLength*.cm_to_kpc, # Smoothing length in kpc
+                                      "ThermalDispersion" = sqrt((gas$InternalEnergy*.cms_to_kms)*(.adiabatic_index - 1)),
+                                      "Metallicity" = gas$Metallicity,
+                                      "Hydrogen" = gas$`ElementAbundance/Hydrogen`,
+                                      "Oxygen" = gas$`ElementAbundance/Oxygen`)
+    
+    gas_part$ThermalDispersion[gas_part$Temperature <= 1e4] = 11
+    
+    remove(gas); remove(PT0_attr)
+    
+  } else {gas_part=NULL}
+  
+  if ("PartType4" %in% groups){
+    PT4_attr = hdf5r::list.datasets(data[["PartType4"]])
+    
+    expected_names_stars = c("Coordinates", "Masses", "ParticleIDs",
+                             "Metallicity", "StellarFormationTime", "Velocities")
+    PT4_attr = PT4_attr[which(PT4_attr %in% expected_names_stars)] # trim list to only read in necessary data sets
+    
+    n_star_prop = length(PT4_attr)
+    stars = vector("list", n_star_prop)
+    names(stars) = PT4_attr
+    
+    for (i in 1:n_star_prop){
+      aexp = hdf5r::h5attr(data[[paste0("PartType4/",PT4_attr[i])]], "aexp-scale-exponent")
+      hexp = hdf5r::h5attr(data[[paste0("PartType4/",PT4_attr[i])]], "h-scale-exponent")
+      cgs  = hdf5r::h5attr(data[[paste0("PartType4/",PT4_attr[i])]], "CGSConversionFactor")
+      stars[[i]] =
+        hdf5r::readDataSet(data[[paste0("PartType4/",PT4_attr[i])]]) * head$Time^(aexp) * head$HubbleParam^(hexp) * cgs
+    }
+    
+    stars = .check_names(stars)
+    
+    one_p_flag = FALSE
+    if (is.null(dim(stars$Coordinates))){one_p_flag = TRUE}
+    
+    star_part = data.table::data.table("ID" = stars$ParticleIDs,
+                                       "x"  = if(one_p_flag){stars$Coordinates[1]*.cm_to_kpc}else{stars$Coordinates[1,]*.cm_to_kpc}, # Coordinates in kpc
+                                       "y"  = if(one_p_flag){stars$Coordinates[2]*.cm_to_kpc}else{stars$Coordinates[2,]*.cm_to_kpc},
+                                       "z"  = if(one_p_flag){stars$Coordinates[3]*.cm_to_kpc}else{stars$Coordinates[3,]*.cm_to_kpc},
+                                       "vx"  = if(one_p_flag){stars$Velocity[1]*.cms_to_kms}else{stars$Velocity[1,]*.cms_to_kms}, # Velocities in km/s
+                                       "vy"  = if(one_p_flag){stars$Velocity[2]*.cms_to_kms}else{stars$Velocity[2,]*.cms_to_kms},
+                                       "vz"  = if(one_p_flag){stars$Velocity[3]*.cms_to_kms}else{stars$Velocity[3,]*.cms_to_kms},
+                                       "Mass" = stars$Mass*.g_to_msol) # Mass in solar masses
+    
+    ssp = data.table::data.table("Initial_Mass" = stars$InitialMass*.g_to_msol,
+                                 "Age" = as.numeric(.SFTtoAge(a = stars$StellarFormationTime, cores = cores)),
+                                 "Metallicity" = stars$Metallicity)
+    
+    remove(stars); remove(PT4_attr)
+    
+  } else {star_part=NULL; ssp=NULL}
+  
+  head$Type = "FIRE2"
+  return(list(star_part=star_part, gas_part=gas_part, head=head, ssp=ssp))
+  
+}
