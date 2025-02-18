@@ -122,6 +122,7 @@ make_simspin_file = function(filename, cores=1, disk_age=5, bulge_age=10,
 
   if (file_type == "hdf5"){
     galaxy_data = .read_hdf5(filename, cores)
+   
   } else if (file_type == "gadget_binary") {
     galaxy_data = .read_gadget(filename)
   }
@@ -133,7 +134,7 @@ make_simspin_file = function(filename, cores=1, disk_age=5, bulge_age=10,
   header$Npart = sum(galaxy_data$head$Npart, na.rm=T)
 
   galaxy_data = .centre_galaxy(galaxy_data, centre) # centering the galaxy based on stellar particles
-
+  
   if (header$Type != "nbody"){
     if (!is.na(half_mass)){ # if a half mass is requested, this alignment is specified by the user
       header$Alignment = "Specified"
@@ -150,7 +151,7 @@ make_simspin_file = function(filename, cores=1, disk_age=5, bulge_age=10,
 
   if (!is.null(galaxy_data$ssp)){ # if there are stellar particles in the file at all
                                   #  adding info to stellar_particle data
-
+ 
     # If a particle has a metallicity of 0, remove from sample
     Z0_int = which(galaxy_data$ssp$Metallicity == 0)
     if (length(Z0_int)!=0){ # remove if there are any Z = 0
@@ -220,7 +221,7 @@ make_simspin_file = function(filename, cores=1, disk_age=5, bulge_age=10,
 
   if (galaxy_data$head$Type == "EAGLE" | galaxy_data$head$Type == "Magneticum" | galaxy_data$head$Type == "Horizon-AGN" | galaxy_data$head$Type == "Illustris-TNG" | galaxy_data$head$Type == "FIRE2"){
     if (length(galaxy_data$gas_part$SmoothingLength)>0 & sph_spawn_n>1){ # if we need to spawn gas particles because we are working with SPH models
-
+      
       gas_part_names = names(galaxy_data$gas_part)
       new_gas_part = stats::setNames(data.table::data.table(matrix(0,
                                                                    ncol = length(gas_part_names),

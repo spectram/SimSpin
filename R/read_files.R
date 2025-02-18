@@ -364,7 +364,8 @@
     }
 
     gas = .check_names(gas)
-    eagle_gas_names = c("SmoothingLength", "Temperature", "InternalEnergy")
+    eagle_gas_names = c("SmoothingLength", "Temperature", "InternalEnergy", "ElementAbundance/Oxygen",
+                                               "ElementAbundance/Hydrogen")
     if (!all(eagle_gas_names %in% names(gas))){
       stop("Error. Missing a necessary dataset for EAGLE PartType0. \n
            Either `SmoothingLength`, `Temperature`, or `InternalEnergy`. \n
@@ -835,7 +836,7 @@
     PT0_attr = hdf5r::list.datasets(data[["PartType0"]])
     
     expected_names_gas = c("Coordinates", "Density", "Masses", "ParticleIDs",
-                           "Metallicity", "StarFormationRate", "SmoothingLength",
+                           "Metallicity", "StarFormationRate", "SmoothingLength", "InternalEnergy",
                            "Temperature", "ElectronAbundance", "NeutralHydrogenAbundance", "Velocities")
     PT0_attr = PT0_attr[which(PT0_attr %in% expected_names_gas)] # trim list to only read in necessary data sets
     
@@ -852,9 +853,9 @@
     }
     
     gas = .check_names(gas)
-    eagle_gas_names = c("SmoothingLength", "Temperature", "InternalEnergy")
-    if (!all(eagle_gas_names %in% names(gas))){
-      stop("Error. Missing a necessary dataset for EAGLE PartType0. \n
+    fire2_gas_names = c("SmoothingLength", "Temperature", "InternalEnergy")
+    if (!all(fire2_gas_names %in% names(gas))){
+      stop("Error. Missing a necessary dataset for FIRE2 PartType0. \n
            Either `SmoothingLength`, `Temperature`, or `InternalEnergy`. \n
            See https://kateharborne.github.io/SimSpin/examples/generating_hdf5.html#parttype0 for more info.")
     }
@@ -875,10 +876,10 @@
                                       "Temperature" = gas$Temperature,
                                       "SmoothingLength" = gas$SmoothingLength*.cm_to_kpc, # Smoothing length in kpc
                                       "ThermalDispersion" = sqrt((gas$InternalEnergy*.cms_to_kms)*(.adiabatic_index - 1)),
-                                      "Metallicity" = gas$Metallicity[1,],
-                                      "Hydrogen" = 1-(gas$Metallicity[1,]+gas$Metallicity[2,]),
-                                      "Oxygen" = gas$Metallicity[5,])
-    
+                                      "Metallicity" = if(one_p_flag){gas$Metallicity[1]}else{gas$Metallicity[1,]},
+                                      "Hydrogen" = if(one_p_flag){1-sum(gas$Metallicity[1:2])}else{1-colSums(gas$Metallicity[1:2,])},
+                                      "Oxygen" = if(one_p_flag){gas$Metallicity[5]}else{gas$Metallicity[5,]})
+
     gas_part$ThermalDispersion[gas_part$Temperature <= 1e4] = 11
     
     remove(gas); remove(PT0_attr)
@@ -920,7 +921,7 @@
     
     ssp = data.table::data.table("Initial_Mass" = stars$Mass*.g_to_msol,
                                  "Age" = as.numeric(.SFTtoAge(a = stars$StellarFormationTime, cores = cores)),
-                                 "Metallicity" = stars$Metallicity[1,])
+                                 "Metallicity" = if(one_p_flag){stars$Metallicity[1]}else{stars$Metallicity[1,]})
     
     remove(stars); remove(PT4_attr)
     
@@ -988,35 +989,34 @@
     particle_list = particle_list[-id_to_remove]
   }
 
-  if (!is.null(nrow(particle_list$Metallicity)) |
-      length(particle_list$Metallicity)[1] == 11 & length(particle_list$ParticleIDs) != 11){
+  # if (!is.null(nrow(particle_list$Metallicity)) |
+  #     length(particle_list$Metallicity)[1] == 11 & length(particle_list$ParticleIDs) != 11){
+  # 
+  #   one_p_flag = FALSE
+  #   if (is.null(dim(particle_list$Coordinates))){one_p_flag = TRUE}
+  # 
+  #   Metallicity = if(one_p_flag){(sum(particle_list$Metallicity[2:11]))/(particle_list$Mass)}else{(colSums(particle_list$Metallicity[2:11,]))/(particle_list$Mass)}
+  #   Hydrogen    = if(one_p_flag){(particle_list$Mass - sum(particle_list$Metallicity)) / particle_list$Mass}else{(particle_list$Mass - colSums(particle_list$Metallicity)) / particle_list$Mass}
+  #   Oxygen      = if(one_p_flag){particle_list$Metallicity[4] / particle_list$Mass}else{particle_list$Metallicity[4,] / particle_list$Mass}
+  # 
+  #   particle_list$Metallicity = Metallicity
+  #   particle_list$`ElementAbundance/Oxygen` = Hydrogen
+  #   particle_list$`ElementAbundance/Hydrogen` = Oxygen
+  # 
+  # }
 
-    one_p_flag = FALSE
-    if (is.null(dim(particle_list$Coordinates))){one_p_flag = TRUE}
-
-    Metallicity = if(one_p_flag){(sum(particle_list$Metallicity[2:11]))/(particle_list$Mass)}else{(colSums(particle_list$Metallicity[2:11,]))/(particle_list$Mass)}
-    Hydrogen    = if(one_p_flag){(particle_list$Mass - sum(particle_list$Metallicity)) / particle_list$Mass}else{(particle_list$Mass - colSums(particle_list$Metallicity)) / particle_list$Mass}
-    Oxygen      = if(one_p_flag){particle_list$Metallicity[4] / particle_list$Mass}else{particle_list$Metallicity[4,] / particle_list$Mass}
-
-    particle_list$Metallicity = Metallicity
-    particle_list$`ElementAbundance/Oxygen` = Hydrogen
-    particle_list$`ElementAbundance/Hydrogen` = Oxygen
-
-  }
-
-  expected_names_gas = c("Coordinates", "Density", "Mass", "ParticleIDs",
-                         "ElementAbundance/Oxygen",
-                         "ElementAbundance/Hydrogen", "Metallicity",
-                         "StarFormationRate", "Velocity")
-
-  expected_names_stars = c("Coordinates", "InitialMass", "Mass", "ParticleIDs",
-                           "Metallicity", "StellarFormationTime", "Velocity")
-
-  if (!all(expected_names_gas %in% names(particle_list)) &
-      !all(expected_names_stars %in% names(particle_list))){
-    stop("Error. A key dataset is missing that is necessary for processing. \n
-          Please check https://kateharborne.github.io/SimSpin/examples/generating_hdf5.html#hydrodynamical-simulations for an expected list. \n")
-  }
+  # expected_names_gas = c("Coordinates", "Density", "Mass", "ParticleIDs",
+  #                        "Metallicity", "StarFormationRate", "Velocity")
+  # 
+  # expected_names_stars = c("Coordinates", "Mass", "ParticleIDs",
+  #                          "Metallicity", "StellarFormationTime", "Velocity") # Eagle - "InitialMass"
+  
+  # The below statement won't work because when .check_names(stars) is called names(particle_list) will not have "StarFormationRate"
+  # if (!all(expected_names_gas %in% names(particle_list)) &
+  #     !all(expected_names_stars %in% names(particle_list))){
+  #   stop("Error. A key dataset is missing that is necessary for processing. \n
+  #         Please check https://kateharborne.github.io/SimSpin/examples/generating_hdf5.html#hydrodynamical-simulations for an expected list. \n")
+  # }
 
   return(particle_list)
 
