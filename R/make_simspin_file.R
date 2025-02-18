@@ -218,7 +218,7 @@ make_simspin_file = function(filename, cores=1, disk_age=5, bulge_age=10,
 
   } else {sed = NULL} # if only gas in the file
 
-  if (galaxy_data$head$Type == "EAGLE" | galaxy_data$head$Type == "Magneticum" | galaxy_data$head$Type == "Horizon-AGN" | galaxy_data$head$Type == "Illustris-TNG"){
+  if (galaxy_data$head$Type == "EAGLE" | galaxy_data$head$Type == "Magneticum" | galaxy_data$head$Type == "Horizon-AGN" | galaxy_data$head$Type == "Illustris-TNG" | galaxy_data$head$Type == "FIRE2"){
     if (length(galaxy_data$gas_part$SmoothingLength)>0 & sph_spawn_n>1){ # if we need to spawn gas particles because we are working with SPH models
 
       gas_part_names = names(galaxy_data$gas_part)
